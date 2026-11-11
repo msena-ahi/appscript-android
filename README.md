@@ -1,6 +1,10 @@
 # DevStudioIA Android V1 alpha — código-fonte
 
-**Status:** projeto Android para compilação; **APK ainda não compilado/testado**. Sem publicação, sem custos contratados.
+**Status:** APK debug compilado com sucesso em 11/11/2026, execução #2. Sem publicação na Play Store; testes em aparelho e OAuth ainda pendentes.
+
+Build: https://github.com/msena-ahi/appscript-android/actions/runs/43115147714
+
+APK SHA-256: `53c1911b60fb6d56e37e36822d9f6d1dcd5e9651c3dc2c4af86267666169dd68`
 
 ## Compilar APK grátis
 
@@ -31,5 +35,5 @@
 - Não há diff visual, controle de conflitos, histórico de versões remoto ou paginação completa.
 - A gravação via `projects.updateContent` substitui todo o conteúdo do projeto. Use somente com projetos de teste. Não edite projetos críticos nesta versão.
 - O app não instala nem publica projetos Apps Script e não altera Firebase.
-- Não existe APK validado nesta entrega. A compilação pode exigir ajustes de dependências ou configuração OAuth.
+- Compilação e integridade do APK verificadas. Instalação, execução e OAuth em dispositivo ainda não homologados.
 - O APK debug é para homologação local, não para distribuição pública.
