@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 8068)
+Total output lines: 507
+
 package br.com.devstudioia
 
 import android.accounts.Account
@@ -8,6 +11,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.Editable
@@ -64,8 +68,9 @@ class MainActivity : ComponentActivity() {
         val type = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE)
         if (email.isNullOrBlank() || type != "com.google") { busy = false; home("Selecione uma conta Google válida."); return@registerForActivityResult }
         account = Account(email, "com.google")
-        pendingGeneration = generation
-        authorize()
+        busy = false
+        home("Conta escolhida: $email. O Google concluirá o login no navegador.")
+        openOfficialAppsScript()
     }
     private val consent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         if (pendingGeneration != generation) return@registerForActivityResult
@@ -128,22 +133,34 @@ class MainActivity : ComponentActivity() {
         }
         scroll.addView(root); setContentView(scroll); scroll.requestApplyInsets()
         root.addView(text("DevStudioIA • $title", 24f).apply { setTypeface(null, Typeface.BOLD) })
-        status = text(if (token != null) "Conectado: ${account?.name}" else "Conta não conectada", 14f)
+        status = text(when {
+            token != null -> "Conectado: ${account?.name}"
+            account != null -> "Conta selecionada: ${account?.name} (login no navegador)"
+            else -> "Conta Google ainda não escolhida"
+        }, 14f)
         status.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         root.addView(status)
     }
     private fun home(note: String? = null) {
         screen("Mobile IDE")
-        root.addView(text(if (token == null)
-            "1. Entre com sua conta Google pessoal ou corporativa. Depois da autorização, você poderá listar os projetos acessíveis por essa conta. A senha é informada somente ao Google."
-        else
-            "Conta conectada: ${account?.name}. Agora você pode listar os projetos Apps Script acessíveis por este e-mail.", 15f))
-        button(if (token == null) "1. Entrar com Google" else "Trocar conta Google") { leaveProject { chooseAccount() } }
-        button("2. Listar projetos desta conta", token != null && !busy) { listProjects() }
-        button("Sair da conta", account != null && !busy) { leaveProject { disconnect() } }
-        button("Diagnóstico e configuração", !busy) { diagnostics() }
-        root.addView(text("Versão 1.1 alfa • Firebase e copiloto ainda não disponíveis.", 12f))
+        root.addView(text("1. Escolha sua conta Google. 2. O Apps Script oficial abrirá no navegador, fará o login se necessário e exibirá os projetos e recursos da sua conta.", 15f))
+        button(if (account == null) "1. Entrar com Google" else "1. Trocar conta Google") { chooseAccount() }
+        button("2. Abrir Apps Script oficial", account != null && !busy) { openOfficialAppsScript() }
+        button("Limpar conta selecionada", account != null && !busy) { clearSession(); home("Conta removida do DevStudioIA. A sessão do navegador é gerenciada pelo Google.") }
+        root.addView(text("Versão 1.2 alfa • O login e o editor são fornecidos pelo Google no navegador.", 12f))
         note?.let { message(it) }
+    }
+    private fun openOfficialAppsScript() {
+        val email = account?.name
+        if (email.isNullOrBlank()) { home("Escolha uma conta Google primeiro."); return }
+        val uri = Uri.parse("https://script.google.com/home").buildUpon()
+            .appendQueryParameter("authuser", email).build()
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            message("Abrindo Apps Script oficial para $email. Se solicitado, entre nessa conta Google no navegador.")
+        } catch (_: Exception) {
+            message("Não encontrei um navegador para abrir o Apps Script. Instale ou habilite o Chrome e tente novamente.")
+        }
     }
     private fun message(value: String) { if (!isDestroyed) status.text = value }
     private fun controls(enabled: Boolean) {
@@ -250,10 +267,7 @@ class MainActivity : ComponentActivity() {
     private fun leaveProject(action: () -> Unit) {
         if (busy) { message("Aguarde a operação terminar."); return }
         if (dirty()) AlertDialog.Builder(this).setTitle("Alterações não salvas")
-            .setMessage("Há um rascunho local. Você pode exportá-lo antes de sair.")
-            .setNegativeButton("Continuar editando", null)
-            .setNeutralButton("Exportar") { _, _ -> exportBackup() }
-            .setPositiveButton("Descartar e sair") { _, _ -> clearProject(); action() }.show()
+            .s…68 tokens truncated…ect(); action() }.show()
         else { clearProject(); action() }
     }
     private fun showFiles() {

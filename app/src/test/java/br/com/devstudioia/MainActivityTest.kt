@@ -22,14 +22,14 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28])
 class MainActivityTest {
     private fun views(v: View): List<View> = listOf(v) + if (v is ViewGroup) (0 until v.childCount).flatMap { views(v.getChildAt(it)) } else emptyList()
-    @Test fun loginHasNoTechnicalIdFieldAndProjectsRequireAuthorization() {
+    @Test fun loginHasNoTechnicalIdFieldAndOfficialEditorRequiresAccountSelection() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
         val all = views(activity.window.decorView)
         assertTrue(all.filterIsInstance<EditText>().isEmpty())
         assertTrue(all.filterIsInstance<Button>().any { it.text == "1. Entrar com Google" && it.isEnabled })
-        assertFalse(all.filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
-        assertFalse(all.filterIsInstance<Button>().single { it.text == "Sair da conta" }.isEnabled)
+        assertFalse(all.filterIsInstance<Button>().single { it.text == "2. Abrir Apps Script oficial" }.isEnabled)
+        assertFalse(all.filterIsInstance<Button>().single { it.text == "Limpar conta selecionada" }.isEnabled)
         controller.pause().stop().destroy()
     }
     @Test fun connectOpensNativeChooserAndCancelRestoresUi() {
@@ -45,24 +45,21 @@ class MainActivityTest {
         assertTrue(all.filterIsInstance<Button>().single { it.text == "1. Entrar com Google" }.isEnabled)
         controller.pause().stop().destroy()
     }
-    @Test fun projectListingIsEnabledOnlyAfterGoogleAccountAuthorization() {
-        val controller = Robolectric.buildActivity(MainActivity::class.java).setup(); val activity = controller.get()
-        assertFalse(views(activity.window.decorView).filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
-        MainActivity::class.java.getDeclaredField("account").apply { isAccessible = true }.set(activity, Account("marcelo@example.com", "com.google"))
-        MainActivity::class.java.getDeclaredField("token").apply { isAccessible = true }.set(activity, "token-for-test")
-        MainActivity::class.java.getDeclaredMethod("home", String::class.java).apply { isAccessible = true }.invoke(activity, null)
-        val connected = views(activity.window.decorView)
-        assertTrue(connected.filterIsInstance<TextView>().any { it.text.toString().contains("marcelo@example.com") })
-        assertTrue(connected.filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
-        controller.pause().stop().destroy()
-    }
-    @Test fun diagnosticsContainsPackageAndNoLoginField() {
+    @Test fun selectedGoogleAccountOpensOfficialEditorWithAccountHint() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
-        views(activity.window.decorView).filterIsInstance<Button>().single { it.text == "Diagnóstico e configuração" }.performClick()
+        click(activity, "1. Entrar com Google")
+        val chooser = shadowOf(activity).nextStartedActivityForResult
+        val result = android.content.Intent()
+            .putExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME, "marcelo@example.com")
+            .putExtra(android.accounts.AccountManager.KEY_ACCOUNT_TYPE, "com.google")
+        activity.activityResultRegistry.dispatchResult(chooser.requestCode, Activity.RESULT_OK, result)
+        val browserIntent = shadowOf(activity).nextStartedActivity
+        assertEquals("android.intent.action.VIEW", browserIntent.action)
+        assertEquals("https://script.google.com/home?authuser=marcelo%40example.com", browserIntent.data.toString())
         val all = views(activity.window.decorView)
-        assertTrue(all.filterIsInstance<TextView>().any { it.text.toString().contains("br.com.devstudioia") })
-        assertTrue(all.filterIsInstance<EditText>().isEmpty())
+        assertTrue(all.filterIsInstance<Button>().single { it.text == "2. Abrir Apps Script oficial" }.isEnabled)
+        assertTrue(all.filterIsInstance<TextView>().any { it.text.toString().contains("marcelo@example.com") })
         controller.pause().stop().destroy()
     }
     private fun seed(activity: MainActivity) {
