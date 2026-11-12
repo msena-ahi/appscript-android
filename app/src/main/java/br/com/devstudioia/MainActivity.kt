@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 8068)
-Total output lines: 507
-
 package br.com.devstudioia
 
 import android.accounts.Account
@@ -267,7 +264,10 @@ class MainActivity : ComponentActivity() {
     private fun leaveProject(action: () -> Unit) {
         if (busy) { message("Aguarde a operação terminar."); return }
         if (dirty()) AlertDialog.Builder(this).setTitle("Alterações não salvas")
-            .s…68 tokens truncated…ect(); action() }.show()
+            .setMessage("Há um rascunho local. Você pode exportá-lo antes de sair.")
+            .setNegativeButton("Continuar editando", null)
+            .setNeutralButton("Exportar") { _, _ -> exportBackup() }
+            .setPositiveButton("Descartar e sair") { _, _ -> clearProject(); action() }.show()
         else { clearProject(); action() }
     }
     private fun showFiles() {
