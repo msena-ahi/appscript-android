@@ -134,9 +134,12 @@ class MainActivity : ComponentActivity() {
     }
     private fun home(note: String? = null) {
         screen("Mobile IDE")
-        root.addView(text("Use sua conta Google pessoal ou corporativa. A senha é informada somente ao Google.", 15f))
-        button(if (token == null) "Entrar com Google" else "Trocar conta Google") { leaveProject { chooseAccount() } }
-        button("Meus projetos Apps Script", token != null && !busy) { listProjects() }
+        root.addView(text(if (token == null)
+            "1. Entre com sua conta Google pessoal ou corporativa. Depois da autorização, você poderá listar os projetos acessíveis por essa conta. A senha é informada somente ao Google."
+        else
+            "Conta conectada: ${account?.name}. Agora você pode listar os projetos Apps Script acessíveis por este e-mail.", 15f))
+        button(if (token == null) "1. Entrar com Google" else "Trocar conta Google") { leaveProject { chooseAccount() } }
+        button("2. Listar projetos desta conta", token != null && !busy) { listProjects() }
         button("Sair da conta", account != null && !busy) { leaveProject { disconnect() } }
         button("Diagnóstico e configuração", !busy) { diagnostics() }
         root.addView(text("Versão 1.1 alfa • Firebase e copiloto ainda não disponíveis.", 12f))

@@ -6,8 +6,8 @@ android {
         applicationId = "br.com.devstudioia"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1-alpha"
+        versionCode = 3
+        versionName = "1.1.1-alpha"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

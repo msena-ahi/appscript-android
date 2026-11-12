@@ -27,22 +27,33 @@ class MainActivityTest {
         val activity = controller.get()
         val all = views(activity.window.decorView)
         assertTrue(all.filterIsInstance<EditText>().isEmpty())
-        assertTrue(all.filterIsInstance<Button>().any { it.text == "Entrar com Google" && it.isEnabled })
-        assertFalse(all.filterIsInstance<Button>().single { it.text == "Meus projetos Apps Script" }.isEnabled)
+        assertTrue(all.filterIsInstance<Button>().any { it.text == "1. Entrar com Google" && it.isEnabled })
+        assertFalse(all.filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
         assertFalse(all.filterIsInstance<Button>().single { it.text == "Sair da conta" }.isEnabled)
         controller.pause().stop().destroy()
     }
     @Test fun connectOpensNativeChooserAndCancelRestoresUi() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         val activity = controller.get()
-        views(activity.window.decorView).filterIsInstance<Button>().single { it.text == "Entrar com Google" }.performClick()
+        views(activity.window.decorView).filterIsInstance<Button>().single { it.text == "1. Entrar com Google" }.performClick()
         val started = shadowOf(activity).nextStartedActivityForResult
         assertNotNull(started)
         assertNull(started.intent.data) // No browser redirect or client ID is used.
         activity.activityResultRegistry.dispatchResult(started.requestCode, Activity.RESULT_CANCELED, null)
         val all = views(activity.window.decorView)
         assertTrue(all.filterIsInstance<TextView>().any { it.text.toString().contains("Seleção de conta cancelada") })
-        assertTrue(all.filterIsInstance<Button>().single { it.text == "Entrar com Google" }.isEnabled)
+        assertTrue(all.filterIsInstance<Button>().single { it.text == "1. Entrar com Google" }.isEnabled)
+        controller.pause().stop().destroy()
+    }
+    @Test fun projectListingIsEnabledOnlyAfterGoogleAccountAuthorization() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup(); val activity = controller.get()
+        assertFalse(views(activity.window.decorView).filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
+        MainActivity::class.java.getDeclaredField("account").apply { isAccessible = true }.set(activity, Account("marcelo@example.com", "com.google"))
+        MainActivity::class.java.getDeclaredField("token").apply { isAccessible = true }.set(activity, "token-for-test")
+        MainActivity::class.java.getDeclaredMethod("home").apply { isAccessible = true }.invoke(activity)
+        val connected = views(activity.window.decorView)
+        assertTrue(connected.filterIsInstance<TextView>().any { it.text.toString().contains("marcelo@example.com") })
+        assertTrue(connected.filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
         controller.pause().stop().destroy()
     }
     @Test fun diagnosticsContainsPackageAndNoLoginField() {
