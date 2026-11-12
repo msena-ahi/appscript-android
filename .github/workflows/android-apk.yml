@@ -23,11 +23,28 @@ jobs:
           cache-disabled: true
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Tests, lint and debug APK
+        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - name: Verify APK and certificate
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk | tee APK_CERTIFICATE.txt
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee APK_SHA256.txt
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DevStudioIA-test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/test-results/
+          retention-days: 1
       - uses: actions/upload-artifact@v4
         with:
           name: DevStudioIA-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            APK_CERTIFICATE.txt
+            APK_SHA256.txt
           if-no-files-found: error
           retention-days: 1

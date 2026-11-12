@@ -1,134 +1,342 @@
 package br.com.devstudioia
 
+import android.accounts.Account
+import android.accounts.AccountManager
 import android.app.Activity
-import android.os.Bundle
+import android.app.AlertDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
+import android.os.Bundle
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
 import android.view.View
 import android.widget.*
-import android.text.InputType
-import android.net.Uri
-import net.openid.appauth.*
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.AuthorizationResult
+import com.google.android.gms.auth.api.identity.ClearTokenRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import okhttp3.OkHttpClient
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-class MainActivity : Activity() {
- private val client = OkHttpClient.Builder().callTimeout(25, TimeUnit.SECONDS).build()
- private lateinit var authService: AuthorizationService
- private var authState: AuthState? = null
- private var token: String? = null
- private var projectId: String? = null
- private var files: JSONObject? = null
- private var selectedFile = 0
- private var clientId = ""
- private lateinit var root: LinearLayout
- private lateinit var status: TextView
- private lateinit var editor: EditText
- private var projectFiles = org.json.JSONArray()
- private val redirect = Uri.parse("br.com.devstudioia://oauth2redirect")
- private val scopes = "openid email profile https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/script.projects"
- override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); authService = AuthorizationService(this); home(); consumeAuth() }
- override fun onNewIntent(intent:android.content.Intent) { super.onNewIntent(intent); consumeAuth() }
- private fun consumeAuth() { val response=AuthSession.response; val error=AuthSession.error; if(response!=null || error!=null){AuthSession.response=null;AuthSession.error=null; if(response!=null) exchangeAuth(response,error) else status.text="OAuth falhou: ${error?.errorDescription}"} }
- private fun label(s: String, size: Float = 16f): TextView = TextView(this).apply { text=s; textSize=size; setPadding(12,12,12,12) }
- private fun button(s:String, action:()->Unit) { root.addView(Button(this).apply { text=s; setOnClickListener { action() } }) }
- private fun screen(title:String) {
-  root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(18,20,18,12) }
-  val scroll=ScrollView(this); scroll.addView(root); setContentView(scroll)
-  root.addView(label("DevStudioIA  •  $title",22f).apply { setTypeface(null,Typeface.BOLD) })
-  status=label("Conta não conectada",13f); root.addView(status)
- }
- private fun home() {
-  screen("Mobile IDE")
-  val idInput=EditText(this).apply { hint="OAuth Client ID (Android)"; setSingleLine(true); setText(clientId) }; root.addView(idInput)
-  button("Conectar / adicionar conta Google") { clientId=idInput.text.toString().trim(); if(clientId.isBlank()) { status.text="Informe o Client ID"; return@button }; signIn() }
-  button("Listar meus projetos Apps Script") { listProjects() }
-  button("Desconectar / alternar conta") { authState=null; token=null; projectId=null; status.text="Sessão local encerrada. Conecte outra conta." }
-  root.addView(label("V1 alfa: projetos Apps Script. Firebase e copiloto nativo serão integrados nas próximas etapas.",13f))
- }
- private fun signIn() {
-  val config=AuthorizationServiceConfiguration(Uri.parse("https://accounts.google.com/o/oauth2/v2/auth"),Uri.parse("https://oauth2.googleapis.com/token"))
-  val req=AuthorizationRequest.Builder(config,clientId,"code",redirect).setScope(scopes).setAdditionalParameters(mapOf("prompt" to "select_account")).build()
-  authService.performAuthorizationRequest(req,android.app.PendingIntent.getActivity(this,123,android.content.Intent(this,AuthResultActivity::class.java),android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE))
- }
- private fun exchangeAuth(response:AuthorizationResponse,error:AuthorizationException?) {
-  authState=AuthState(response,error)
-  authService.performTokenRequest(response.createTokenExchangeRequest()) { tokenResponse, exception ->
-   runOnUiThread {
-    if(tokenResponse!=null) { authState?.update(tokenResponse,exception); token=tokenResponse.accessToken; status.text="Conta conectada (token temporário em memória)" }
-    else status.text="Falha ao trocar código OAuth: ${exception?.errorDescription}"
-   }
-  }
- }
- private fun get(url:String, done:(JSONObject)->Unit) {
-  val t=token ?: run {status.text="Conecte uma conta primeiro";return}
-  val req=Request.Builder().url(url).header("Authorization","Bearer $t").build()
-  client.newCall(req).enqueue(object:Callback {
-   override fun onFailure(call:Call,e:IOException) {runOnUiThread{status.text="Rede: ${e.message}"}}
-   override fun onResponse(call:Call,response:Response) { response.use {
-    val body=it.body?.string().orEmpty()
-    runOnUiThread { if(!it.isSuccessful) status.text="HTTP ${it.code}: ${body.take(300)}" else try { done(JSONObject(body)) } catch(e:Exception) { status.text="Resposta inválida: ${e.message}" } }
-   } }
-  })
- }
- private fun listProjects() {
-  get("https://www.googleapis.com/drive/v3/files?q=mimeType%3D%27application%2Fvnd.google-apps.script%27%20and%20trashed%3Dfalse&fields=nextPageToken%2Cfiles(id%2Cname%2CmodifiedTime)&pageSize=100") { obj ->
-   screen("Projetos Apps Script")
-   val arr=obj.optJSONArray("files") ?: org.json.JSONArray()
-   root.addView(label("${arr.length()} projetos nesta página"))
-   for(i in 0 until arr.length()) { val item=arr.getJSONObject(i); button(item.optString("name","Projeto")) {projectId=item.getString("id"); openProject()} }
-   if(obj.has("nextPageToken")) root.addView(label("Mais páginas disponíveis: paginação pendente nesta versão."))
-   button("Voltar") {home()}
-  }
- }
- private fun openProject() {
-  val id=projectId ?:return
-  get("https://script.googleapis.com/v1/projects/$id/content") { obj ->
-   files=obj; projectFiles=obj.optJSONArray("files") ?: org.json.JSONArray(); screen("Editor")
-   root.addView(label("Projeto: $id",12f))
-   for(i in 0 until projectFiles.length()) { val index=i; val f=projectFiles.getJSONObject(i); button(f.optString("name","arquivo")+" ("+f.optString("type")+")") {showEditor(index)} }
-   button("Voltar aos projetos") {listProjects()}
-  }
- }
- private fun showEditor(index:Int) {
-  selectedFile=index; val f=projectFiles.getJSONObject(index)
-  screen("${f.optString("name")}")
-  root.addView(label("Editor de texto • alterações locais até salvar"))
-  editor=EditText(this).apply {setText(f.optString("source")); minLines=16; textSize=13f; typeface=Typeface.MONOSPACE; inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS; setHorizontallyScrolling(true)}
-  root.addView(editor)
-  button("Salvar cópia local (backup)") {backup()}
-  button("Revisar e salvar no Google") { confirmSave() }
-  button("Voltar") {openProject()}
- }
- private fun backup() {
-  val id=projectId ?:return
-  val backupText=files?.toString(2) ?:return
-  val name="devstudioia_${id}_${System.currentTimeMillis()}.json"
-  try {openFileOutput(name,MODE_PRIVATE).use {it.write(backupText.toByteArray(Charsets.UTF_8))};status.text="Backup local privado: $name"}
-  catch(e:Exception){status.text="Falha no backup: ${e.message}"}
- }
- private fun confirmSave() {
-  val id=projectId ?:return
-  val old=projectFiles.getJSONObject(selectedFile).optString("source")
-  val changed=editor.text.toString()
-  if(old==changed) {status.text="Nenhuma alteração";return}
-  android.app.AlertDialog.Builder(this).setTitle("Substituir código remoto?")
-   .setMessage("Arquivo: ${projectFiles.getJSONObject(selectedFile).optString("name")}\nAntes: ${old.length} caracteres\nDepois: ${changed.length} caracteres\n\nO Apps Script API substitui o conjunto de arquivos. Evite edição simultânea. Backup será salvo antes da alteração.")
-   .setNegativeButton("Cancelar",null).setPositiveButton("Confirmar") { _,_ ->
-    val backupText=files?.toString(2) ?:return@setPositiveButton
-    try {openFileOutput("backup_${id}_${System.currentTimeMillis()}.json",MODE_PRIVATE).use {it.write(backupText.toByteArray())}}catch(e:Exception){status.text="Backup falhou; gravação cancelada";return@setPositiveButton}
-    val t=token ?:return@setPositiveButton
-    val newFiles=org.json.JSONArray(projectFiles.toString());newFiles.getJSONObject(selectedFile).put("source",changed)
-    val payload=JSONObject().put("files",newFiles).toString()
-    val req=Request.Builder().url("https://script.googleapis.com/v1/projects/$id/content").header("Authorization","Bearer $t").put(payload.toRequestBody("application/json; charset=utf-8".toMediaType())).build()
-    client.newCall(req).enqueue(object:Callback {
-     override fun onFailure(call:Call,e:IOException){runOnUiThread{status.text="Falha: ${e.message}"}}
-     override fun onResponse(call:Call,response:Response){response.use{val result=it.body?.string().orEmpty();runOnUiThread{if(it.isSuccessful){status.text="Código salvo; recarregue o projeto"}else{status.text="HTTP ${it.code}: ${result.take(300)}"}}}}
-    })
-   }.show()
- }
- override fun onDestroy(){authService.dispose();super.onDestroy()}
+class MainActivity : ComponentActivity() {
+    private val client = OkHttpClient.Builder().callTimeout(30, TimeUnit.SECONDS).retryOnConnectionFailure(false).build()
+    private val repository = ScriptRepository(client)
+    private val worker = Executors.newSingleThreadExecutor()
+    private val auth by lazy { Identity.getAuthorizationClient(this) }
+    private val scopes = listOf(Scope("https://www.googleapis.com/auth/drive.metadata.readonly"), Scope("https://www.googleapis.com/auth/script.projects"))
+    private var account: Account? = null
+    private var token: String? = null
+    @Volatile private var generation = 0
+    private var pendingGeneration = 0
+    private var busy = false
+    private var project: ScriptProject? = null
+    private var baseline: ProjectDocument? = null
+    private var draft: ProjectDocument? = null
+    private var selected = -1
+    private var page: ProjectPage? = null
+    private var pageToken: String? = null
+    private var exportText: String? = null
+    private lateinit var root: LinearLayout
+    private lateinit var status: TextView
+    private var editor: EditText? = null
+
+    private val chooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) { busy = false; home("Seleção de conta cancelada."); return@registerForActivityResult }
+        val email = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+        val type = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE)
+        if (email.isNullOrBlank() || type != "com.google") { busy = false; home("Selecione uma conta Google válida."); return@registerForActivityResult }
+        account = Account(email, "com.google")
+        pendingGeneration = generation
+        authorize()
+    }
+    private val consent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (pendingGeneration != generation) return@registerForActivityResult
+        if (result.resultCode != Activity.RESULT_OK) { busy = false; token = null; home("Permissão cancelada. Nenhum dado foi alterado."); return@registerForActivityResult }
+        try { authorized(auth.getAuthorizationResultFromIntent(result.data ?: throw IOException("Autorização vazia"))) }
+        catch (e: Exception) { authFailed(e) }
+    }
+    private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val text = exportText; exportText = null
+        if (uri == null || text == null) { message("Exportação cancelada."); return@registerForActivityResult }
+        try {
+            val stream = contentResolver.openOutputStream(uri, "wt") ?: throw IOException("Não foi possível abrir o destino")
+            stream.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            message("Backup exportado com sucesso.")
+        } catch (_: Exception) { message("Não foi possível exportar. O rascunho continua no aplicativo.") }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (busy) { message("Aguarde a operação terminar."); return }
+                if (editor != null) showFiles() else if (draft != null) leaveProject { home() } else finish()
+            }
+        })
+        home()
+        val recovery = File(filesDir, "editor-recovery.json")
+        if (recovery.exists()) AlertDialog.Builder(this).setTitle("Recuperar rascunho local?")
+            .setMessage("Há um projeto aberto anteriormente. Você pode recuperar e exportar as alterações sem gravar no Google.")
+            .setNegativeButton("Descartar") { _, _ -> recovery.delete() }
+            .setPositiveButton("Recuperar") { _, _ ->
+                try {
+                    val json = JSONObject(recovery.readText())
+                    project = ScriptProject(json.getString("id"), json.getString("name"))
+                    baseline = ProjectDocument.parse(json.getJSONObject("original"))
+                    draft = ProjectDocument.parse(json.getJSONObject("draft"))
+                    showFiles(); message("Rascunho recuperado. Exporte antes de conectar outra sessão.")
+                } catch (_: Exception) { message("Rascunho local inválido. Nenhuma alteração remota foi feita.") }
+            }.show()
+    }
+    private fun text(value: String, size: Float = 16f) = TextView(this).apply {
+        text = value; textSize = size; setTextColor(Color.rgb(30, 41, 59)); setPadding(12, 12, 12, 12)
+    }
+    private fun button(label: String, enabled: Boolean = !busy, action: () -> Unit) {
+        root.addView(Button(this).apply { text = label; isEnabled = enabled; isAllCaps = false; setOnClickListener { action() } })
+    }
+    private fun screen(title: String) {
+        editor = null
+        root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.WHITE) }
+        val scroll = ScrollView(this)
+        scroll.setOnApplyWindowInsetsListener { v, insets ->
+            if (Build.VERSION.SDK_INT >= 30) {
+                val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime())
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                v.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            }
+            insets
+        }
+        scroll.addView(root); setContentView(scroll); scroll.requestApplyInsets()
+        root.addView(text("DevStudioIA • $title", 24f).apply { setTypeface(null, Typeface.BOLD) })
+        status = text(if (token != null) "Conectado: ${account?.name}" else "Conta não conectada", 14f)
+        status.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        root.addView(status)
+    }
+    private fun home(note: String? = null) {
+        screen("Mobile IDE")
+        root.addView(text("Use sua conta Google pessoal ou corporativa. A senha é informada somente ao Google.", 15f))
+        button(if (token == null) "Entrar com Google" else "Trocar conta Google") { leaveProject { chooseAccount() } }
+        button("Meus projetos Apps Script", token != null && !busy) { listProjects() }
+        button("Sair da conta", account != null && !busy) { leaveProject { disconnect() } }
+        button("Diagnóstico e configuração", !busy) { diagnostics() }
+        root.addView(text("Versão 1.1 alfa • Firebase e copiloto ainda não disponíveis.", 12f))
+        note?.let { message(it) }
+    }
+    private fun message(value: String) { if (!isDestroyed) status.text = value }
+    private fun controls(enabled: Boolean) {
+        for (i in 0 until root.childCount) { val v = root.getChildAt(i); if (v is Button || v is EditText) v.isEnabled = enabled }
+    }
+    private fun chooseAccount() {
+        clearSession()
+        home()
+        busy = true; controls(false)
+        try {
+            chooser.launch(AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), "Escolha a conta para o DevStudioIA", null, null, null))
+        } catch (_: Exception) { busy = false; home("Não foi possível abrir as contas. Adicione uma conta Google nas configurações do Android.") }
+    }
+    private fun authorize() {
+        val available = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this)
+        if (available != ConnectionResult.SUCCESS) {
+            busy = false; home("Atualize ou habilite o Google Play Services para conectar sua conta.")
+            GoogleApiAvailability.getInstance().getErrorDialog(this, available, 100)?.show(); return
+        }
+        val selectedAccount = account ?: return
+        val expected = generation
+        val request = AuthorizationRequest.builder().setAccount(selectedAccount).setRequestedScopes(scopes).build()
+        auth.authorize(request).addOnSuccessListener { result ->
+            if (expected != generation || isDestroyed) return@addOnSuccessListener
+            if (result.hasResolution()) {
+                val pending = result.pendingIntent
+                if (pending == null) authFailed(IOException("Não foi possível abrir a autorização"))
+                else try { consent.launch(IntentSenderRequest.Builder(pending.intentSender).build()) } catch (e: Exception) { authFailed(e) }
+            } else authorized(result)
+        }.addOnFailureListener { e -> if (expected == generation && !isDestroyed) authFailed(e) }
+    }
+    private fun authorized(result: AuthorizationResult) {
+        val granted = result.grantedScopes.toSet()
+        if (!scopes.all { it.scope in granted } || result.accessToken.isNullOrBlank()) {
+            busy = false; token = null; home("Acesso aos projetos não autorizado. Conecte novamente e revise as permissões."); return
+        }
+        token = result.accessToken; busy = false
+        home("Conectado: ${account?.name}. Você já pode abrir seus projetos.")
+    }
+    private fun authFailed(e: Exception) {
+        token = null; busy = false
+        val code = (e as? ApiException)?.statusCode
+        home(when (code) {
+            10 -> "Cadastro do aplicativo no Google pendente. Use Diagnóstico para obter o pacote e a assinatura necessários ao administrador."
+            7 -> "Sem conexão. Verifique a internet e tente novamente."
+            16, 12501 -> "Entrada cancelada. Nenhuma alteração foi feita."
+            else -> "Não foi possível autorizar a conta (código ${code ?: "indisponível"}). Consulte Diagnóstico e tente novamente."
+        })
+    }
+    private fun clearSession() {
+        generation++; token = null; account = null; busy = false
+        clearProject()
+    }
+    private fun clearProject() { project = null; baseline = null; draft = null; selected = -1; page = null; pageToken = null; File(filesDir, "editor-recovery.json").delete() }
+    private fun disconnect() {
+        val selectedAccount = account
+        val oldToken = token
+        clearSession(); home("Sessão local encerrada.")
+        if (oldToken != null) auth.clearToken(ClearTokenRequest.builder().setToken(oldToken).build())
+        if (selectedAccount != null) auth.revokeAccess(RevokeAccessRequest.builder().setAccount(selectedAccount).setScopes(scopes).build())
+            .addOnFailureListener { if (!isDestroyed && account == null) message("Sessão local encerrada. A revogação no Google falhou; remova o acesso em sua Conta Google se necessário.") }
+    }
+    private fun <T> network(task: (String, Int) -> T, done: (T) -> Unit) {
+        val accessToken = token ?: run { message("Entre com Google para continuar."); return }
+        if (busy) return
+        val expected = generation; busy = true; controls(false); message("Processando…")
+        worker.execute {
+            val result = runCatching { task(accessToken, expected) }
+            runOnUiThread {
+                if (expected != generation || isDestroyed) return@runOnUiThread
+                busy = false; controls(true)
+                result.onSuccess(done).onFailure { error ->
+                    if (error is ApiFailure && error.status == 401) {
+                        token = null
+                        auth.clearToken(ClearTokenRequest.builder().setToken(accessToken).build())
+                        controls(false)
+                        // Keep editor text available to copy/export before starting a new session.
+                        root.addView(text("Sessão expirada. Exporte o rascunho antes de entrar novamente.", 14f))
+                        button("Exportar rascunho", draft != null) { exportBackup() }
+                        button("Voltar ao início", true) { leaveProject { home() } }
+                    }
+                    message(when (error) { is IOException, is IllegalArgumentException -> error.message ?: "Não foi possível concluir a operação"; else -> "Resposta inesperada. Tente recarregar o projeto." })
+                }
+            }
+        }
+    }
+    private fun listProjects(next: String? = null) {
+        network({ t, _ -> repository.listProjects(t, next) }) { result -> page = result; pageToken = next; showProjects() }
+    }
+    private fun showProjects() {
+        screen("Projetos")
+        val items = page?.projects.orEmpty()
+        root.addView(text(if (items.isEmpty()) "Nenhum projeto encontrado nesta página." else "${items.size} projetos nesta página", 14f))
+        items.forEach { item -> button(item.name) { openProject(item) } }
+        page?.nextPage?.let { next -> button("Próxima página") { listProjects(next) } }
+        if (pageToken != null) button("Primeira página") { listProjects() }
+        button("Atualizar") { listProjects(pageToken) }
+        button("Voltar") { home() }
+    }
+    private fun openProject(item: ScriptProject) {
+        network({ t, _ -> repository.read(t, item.id) }) { document -> project = item; baseline = document; draft = document; selected = -1; showFiles() }
+    }
+    private fun dirty(): Boolean = draft != null && baseline?.sameContent(draft!!) == false
+    private fun leaveProject(action: () -> Unit) {
+        if (busy) { message("Aguarde a operação terminar."); return }
+        if (dirty()) AlertDialog.Builder(this).setTitle("Alterações não salvas")
+            .setMessage("Há um rascunho local. Você pode exportá-lo antes de sair.")
+            .setNegativeButton("Continuar editando", null)
+            .setNeutralButton("Exportar") { _, _ -> exportBackup() }
+            .setPositiveButton("Descartar e sair") { _, _ -> clearProject(); action() }.show()
+        else { clearProject(); action() }
+    }
+    private fun showFiles() {
+        screen(project?.name ?: "Arquivos")
+        val document = draft ?: return
+        document.files.forEachIndexed { i, file -> button("${file.name} (${file.type})") { showEditor(i) } }
+        button("Exportar backup", !busy) { exportBackup() }
+        button("Recarregar do Google", token != null && !busy) {
+            val item = project ?: return@button
+            if (dirty()) AlertDialog.Builder(this).setTitle("Descartar rascunho?").setMessage("Recarregar substitui as alterações locais. Exporte antes de continuar.")
+                .setNegativeButton("Cancelar", null).setPositiveButton("Recarregar") { _, _ -> openProject(item) }.show() else openProject(item)
+        }
+        button("Voltar aos projetos") { leaveProject { listProjects() } }
+        if (dirty()) message("Alterações locais ainda não salvas.")
+    }
+    private fun showEditor(index: Int) {
+        val file = draft?.files?.getOrNull(index) ?: return
+        selected = index; screen(file.name)
+        val input = EditText(this).apply {
+            setText(file.source); minLines = 14; textSize = 14f; typeface = Typeface.MONOSPACE
+            contentDescription = "Código de ${file.name}"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setHorizontallyScrolling(true)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { draft = draft?.edited(index, s.toString()) }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+        }
+        editor = input; root.addView(input)
+        button("Salvar no Google", token != null && !busy) { confirmSave() }
+        button("Exportar backup") { exportBackup() }
+        button("Voltar aos arquivos") { showFiles() }
+        root.addView(text("O rascunho permanece ao trocar de arquivo. Salvar exige confirmação e backup prévio.", 12f))
+    }
+    private fun backupJson(original: ProjectDocument, edited: ProjectDocument) = JSONObject()
+        .put("id", project?.id).put("name", project?.name).put("original", original.json()).put("draft", edited.json()).toString(2)
+    private fun backup(original: ProjectDocument, edited: ProjectDocument): String {
+        val directory = File(filesDir, "backups").apply { if (!exists() && !mkdirs()) throw IOException("Não foi possível criar o backup") }
+        val target = File(directory, "backup_${System.currentTimeMillis()}_${System.nanoTime()}.json")
+        target.writeText(backupJson(original, edited)); return target.name
+    }
+    private fun exportBackup() {
+        val original = baseline ?: return; val edited = draft ?: return
+        try {
+            backup(original, edited)
+            exportText = backupJson(original, edited)
+            export.launch("DevStudioIA_backup_${System.currentTimeMillis()}.json")
+        } catch (_: Exception) { exportText = null; message("Não foi possível criar o backup. Nenhuma gravação remota foi feita.") }
+    }
+    private fun confirmSave() {
+        val original = baseline ?: return; val edited = draft ?: return; val item = project ?: return
+        if (!dirty()) { message("Nenhuma alteração para salvar."); return }
+        try { edited.validateForSave() } catch (e: Exception) { message(e.message ?: "Conteúdo inválido"); return }
+        val changes = edited.files.count { f -> original.files.find { it.name == f.name } != f }
+        AlertDialog.Builder(this).setTitle("Salvar alterações no Google?")
+            .setMessage("Conta: ${account?.name}\nProjeto: ${item.name}\nArquivos alterados: $changes\n\nSerá salvo um backup local. O conteúdo remoto será conferido antes da gravação. Evite editar simultaneamente em outro dispositivo.")
+            .setNegativeButton("Cancelar", null).setPositiveButton("Salvar") { _, _ ->
+                var backupName = ""
+                network({ t, g -> repository.save(t, item.id, original, edited, { g == generation }) { before, after -> backupName = backup(before, after) } }) { saved ->
+                    baseline = saved; draft = saved
+                    File(filesDir, "editor-recovery.json").delete()
+                    if (selected in saved.files.indices) showEditor(selected) else showFiles()
+                    message("Salvo no Google. Backup local: $backupName")
+                }
+            }.show()
+    }
+    @Suppress("DEPRECATION") private fun signingFingerprint(): String = try {
+        val bytes = if (Build.VERSION.SDK_INT >= 28) packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo!!.apkContentsSigners.first().toByteArray()
+            else packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures!!.first().toByteArray()
+        MessageDigest.getInstance("SHA-1").digest(bytes).joinToString(":") { "%02X".format(it) }
+    } catch (_: Exception) { "Não foi possível obter a assinatura" }
+    private fun diagnostics() {
+        screen("Diagnóstico")
+        root.addView(text("Pacote: $packageName\nSHA-1: ${signingFingerprint()}", 14f))
+        root.addView(text("O administrador deve cadastrar este pacote e SHA-1 como cliente Android no Google Cloud, configurar a tela de consentimento e habilitar Drive API e Apps Script API. O usuário entra escolhendo seu e-mail, sem digitar identificadores técnicos.", 14f))
+        root.addView(text("A conta precisa permitir o uso da Apps Script API nas configurações do Apps Script. Contas corporativas podem depender da liberação do administrador.", 14f))
+        button("Compartilhar diagnóstico") {
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "DevStudioIA 1.1-alpha\nPacote: $packageName\nSHA-1: ${signingFingerprint()}"), "Compartilhar diagnóstico"))
+        }
+        button("Voltar") { home() }
+    }
+    override fun onStop() {
+        super.onStop()
+        val original = baseline; val edited = draft
+        if (dirty() && original != null && edited != null) try { File(filesDir, "editor-recovery.json").writeText(backupJson(original, edited)) } catch (_: Exception) { /* explicit export stays available */ }
+    }
+    override fun onDestroy() { generation++; worker.shutdownNow(); super.onDestroy() }
 }
