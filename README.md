@@ -1,6 +1,6 @@
-# DevStudioIA Android 1.1 alfa
+# DevStudioIA Android 1.1.1 alfa
 
-A tela de login usa **Entrar com Google** e abre o seletor de contas do Android. O usuário não informa Client ID, Client Secret ou senha no DevStudioIA. A senha e a autorização são tratadas pelo sistema/Google.
+O primeiro passo é **1. Entrar com Google**, que abre o seletor de contas do Android. Após a autorização, **2. Listar projetos desta conta** fica disponível e consulta os projetos acessíveis pelo e-mail conectado. O usuário não informa Client ID, Client Secret ou senha no DevStudioIA. A senha e a autorização são tratadas pelo sistema/Google.
 
 ## Configuração do aplicativo pelo administrador
 
