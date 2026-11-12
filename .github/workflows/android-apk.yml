@@ -1,5 +1,12 @@
 name: Build DevStudioIA APK (manual)
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/android-apk.yml'
+      - '*.gradle.kts'
+      - 'gradle.properties'
   workflow_dispatch:
 jobs:
   build:
