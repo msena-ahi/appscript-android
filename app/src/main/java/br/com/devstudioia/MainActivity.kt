@@ -174,7 +174,7 @@ class MainActivity : ComponentActivity() {
     }
     private fun authorized(result: AuthorizationResult) {
         val granted = result.grantedScopes.toSet()
-        if (!scopes.all { it.scope in granted } || result.accessToken.isNullOrBlank()) {
+        if (!scopes.all { it.scopeUri in granted } || result.accessToken.isNullOrBlank()) {
             busy = false; token = null; home("Acesso aos projetos não autorizado. Conecte novamente e revise as permissões."); return
         }
         token = result.accessToken; busy = false
