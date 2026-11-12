@@ -1,39 +1,69 @@
-# DevStudioIA Android V1 alpha — código-fonte
+# DevStudioIA Android 1.1 alfa
 
-**Status:** APK debug compilado com sucesso em 11/11/2026, execução #2. Sem publicação na Play Store; testes em aparelho e OAuth ainda pendentes.
+A tela de login usa **Entrar com Google** e abre o seletor de contas do Android. O usuário não informa Client ID, Client Secret ou senha no DevStudioIA. A senha e a autorização são tratadas pelo sistema/Google.
 
-Build: https://github.com/msena-ahi/appscript-android/actions/runs/43115147714
+## Configuração do aplicativo pelo administrador
 
-APK SHA-256: `53c1911b60fb6d56e37e36822d9f6d1dcd5e9651c3dc2c4af86267666169dd68`
+Este cadastro é obrigatório para acesso real às APIs; remover o campo técnico da tela não elimina a configuração OAuth do aplicativo.
 
-## Compilar APK grátis
+1. Defina um projeto Google Cloud de homologação e configure consentimento/audiência, incluindo usuários de teste se estiver em modo de teste. Não é necessário publicar na Play Store.
+2. Cadastre um cliente OAuth **Android** para o pacote `br.com.devstudioia` e o SHA-1 do certificado deste APK. O SHA-1 está em **Diagnóstico e configuração** e no artefato `APK_CERTIFICATE.txt` da compilação.
+3. Habilite Google Drive API e Google Apps Script API no projeto.
+4. Na conta que será usada, ative a Apps Script API em `https://script.google.com/home/usersettings`.
+5. Em contas Workspace, o administrador pode precisar liberar o aplicativo e seus escopos.
+6. Escolha a conta no Android e conceda `drive.metadata.readonly` e `script.projects`.
 
-1. Código hospedado em `msena-ahi/appscript-android`. O workflow usa um runner Ubuntu padrão em repositório público.
-2. Abra **Actions → Build DevStudioIA APK (manual) → Run workflow**.
-3. Aguarde o resultado. Se a compilação concluir, baixe o artefato `DevStudioIA-debug-apk`, extraia o `app-debug.apk` e instale no Android. O GitHub Actions tem limites gratuitos e pode depender do plano da conta.
-4. Não coloque Client ID, token, chave privada ou senha no repositório. Informe o OAuth Client ID apenas no aplicativo.
+Não há redirecionamento customizado AppAuth nem cliente web/backend neste fluxo. O SDK Google usa a identidade do aplicativo Android. Tokens permanecem em memória e não são incluídos em backups.
 
-## Configuração Google OAuth
+**Assinatura de homologação:** enquanto não houver chave estável configurada, cada runner novo gera uma chave debug diferente. Uma versão posterior pode exigir novo cadastro de SHA-1 e desinstalação da anterior. Antes de homologar OAuth, configure uma chave de teste estável como segredo do repositório; nunca publique a chave no código, cache público ou logs. A compilação atual ainda usa a assinatura debug efêmera.
 
-- No Google Cloud Console, configure tela de consentimento OAuth e escopos necessários, e habilite **Drive API** e **Apps Script API**.
-- Crie um cliente OAuth apropriado para aplicativo nativo e configure redirecionamento **`br.com.devstudioia://oauth2redirect`**. **Atenção:** o Google pode não aceitar esse esquema de redirecionamento para um cliente Android. Se não for aceito, o fluxo OAuth precisa ser adaptado a uma opção suportada pelo Google antes de testar login. Não contorne restrições de segurança.
-- A Google Apps Script API pode exigir ativação em `script.google.com/home/usersettings`.
-- O projeto não inclui backend ou cliente secreto. O token OAuth é mantido apenas em memória.
+## Fluxos implementados
 
-## Escopo realmente implementado
+- Seleção de conta Google pessoal ou corporativa; consentimento e cancelamento tratados.
+- Entrada sem Client ID visível, saída com limpeza local e tentativa de revogação de acesso.
+- Listagem paginada e atualização de projetos Apps Script acessíveis pela Drive API.
+- Leitura de arquivos do projeto; edição de código e manifesto.
+- Rascunho mantido ao mudar de arquivo e proteção contra descarte acidental.
+- Recuperação local de rascunho após interrupção do app; exportação por seletor de arquivos Android.
+- Backup com original **e** rascunho antes de salvar; falha de backup impede gravação remota.
+- Comparação com conteúdo remoto antes do PUT; conflito cancela gravação.
+- Após salvar, a referência local é atualizada para permitir novas alterações.
+- Tratamento de sessão expirada, falta de permissão, projeto ausente, limite de API e resposta inválida.
+- Erro em gravação não provoca repetição automática do PUT.
+- Área de diagnóstico com pacote e certificado para configuração pelo administrador.
 
-- Interface Android nativa simples.
-- Login via navegador externo/AppAuth e seleção de conta (ainda não homologado).
-- Listagem de até 100 projetos Apps Script da conta autorizada via Drive API.
-- Leitura e edição de arquivos de projeto via Apps Script API.
-- Backup local privado antes de salvar e confirmação explícita.
-- Troca de conta por desconexão e novo login; **não** há múltiplas sessões simultâneas.
+A comparação antes de gravar **não é um bloqueio atômico**: a Apps Script API substitui o conjunto de arquivos e não oferece aqui uma transação de edição colaborativa. Evite edição simultânea. Firebase Manager, copiloto, execução/publicação de scripts, criação e exclusão de projetos continuam fora do escopo desta versão.
 
-## Limitações / segurança
+## Testes e compilação
 
-- **Firebase Manager e DevCopilot não estão implementados no APK**; permanecem previstos para próximas versões.
-- Não há diff visual, controle de conflitos, histórico de versões remoto ou paginação completa.
-- A gravação via `projects.updateContent` substitui todo o conteúdo do projeto. Use somente com projetos de teste. Não edite projetos críticos nesta versão.
-- O app não instala nem publica projetos Apps Script e não altera Firebase.
-- Compilação e integridade do APK verificadas. Instalação, execução e OAuth em dispositivo ainda não homologados.
-- O APK debug é para homologação local, não para distribuição pública.
+O workflow `.github/workflows/android-apk.yml` executa automaticamente em mudanças Android e pode ser iniciado manualmente em Actions. Usa runner Ubuntu padrão em repositório público, sem serviços pagos ou publicação na Play Store.
+
+Com Gradle 8.9, JDK 17 e SDK 35:
+
+```sh
+gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+```
+
+- Testes de repositório: HTTP com MockWebServer; dados de teste, sem acesso a projetos reais.
+- Testes de interface: Robolectric Android 9; tela inicial, seletor cancelado, diagnóstico, editor, confirmação e backup.
+- Análise Android Lint e verificação de assinatura/integridade do APK.
+- Artefatos: APK, certificado, SHA-256 e relatórios de testes/lint, retidos por um dia.
+
+Testes automatizados não substituem a homologação do seletor/consentimento Google em aparelho com Play Services. O login, leitura e salvamento em projetos reais só podem ser declarados homologados depois de configurar OAuth e executar o roteiro abaixo.
+
+## Homologação em aparelho
+
+Use uma conta de teste e um projeto Apps Script descartável. Nunca valide gravação inicialmente em projetos de produção.
+
+1. Abrir app, verificar que não há campo Client ID e cancelar a seleção da conta.
+2. Conectar uma conta autorizada; conferir o e-mail exibido e as permissões solicitadas.
+3. Listar, paginar, atualizar e abrir projeto. Testar conta sem projetos e sem permissão.
+4. Alterar dois arquivos, alternar entre eles e verificar preservação de rascunho.
+5. Exportar backup e conferir original/rascunho. Não há tokens no arquivo.
+6. Cancelar o diálogo de gravação; confirmar que nada mudou no Google.
+7. Confirmar a gravação; conferir resultado remotamente e executar uma segunda gravação.
+8. Alterar o mesmo projeto no navegador antes de salvar pelo app: a gravação deve ser bloqueada por conflito.
+9. Testar sem internet e acesso revogado; manter e exportar rascunho em caso de erro.
+10. Sair e trocar para outra conta: não devem aparecer dados da conta anterior.
+
+Fontes: https://developer.android.com/identity/authorization e https://developers.google.com/apps-script/api/reference/rest/v1/projects/updateContent
