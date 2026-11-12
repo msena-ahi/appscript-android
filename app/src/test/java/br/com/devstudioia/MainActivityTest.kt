@@ -50,7 +50,7 @@ class MainActivityTest {
         assertFalse(views(activity.window.decorView).filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
         MainActivity::class.java.getDeclaredField("account").apply { isAccessible = true }.set(activity, Account("marcelo@example.com", "com.google"))
         MainActivity::class.java.getDeclaredField("token").apply { isAccessible = true }.set(activity, "token-for-test")
-        MainActivity::class.java.getDeclaredMethod("home").apply { isAccessible = true }.invoke(activity)
+        MainActivity::class.java.getDeclaredMethod("home", String::class.java).apply { isAccessible = true }.invoke(activity, null)
         val connected = views(activity.window.decorView)
         assertTrue(connected.filterIsInstance<TextView>().any { it.text.toString().contains("marcelo@example.com") })
         assertTrue(connected.filterIsInstance<Button>().single { it.text == "2. Listar projetos desta conta" }.isEnabled)
